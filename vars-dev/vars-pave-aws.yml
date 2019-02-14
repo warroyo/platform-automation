@@ -1,0 +1,41 @@
+foundation: dev
+
+aws:
+  access_key_id: ((dev_access_key_id))
+  secret_access_key: ((dev_secret_access_key_id))
+
+s3:
+  endpoint: s3.us-east-1.amazonaws.com
+  access_key_id: ((s3_access_key_id))
+  secret_access_key: ((s3_secret_access_key_id))
+  region_name: "us-east-1"
+  buckets:
+    platform_automation: pcf-automation-blobs
+    pave: pcf-pave-bucket
+
+product:
+  # Pivnet-based
+  product_slug: elastic-runtime
+  product_name: ""
+  product_version: 2.4.3-build.18
+  product_globs: "terraforming-aws-*.zip"
+  # S3-based, enable and set below variables if using S3
+  #regexp: 
+
+pivnet: 
+  token: ((pivnet_token))
+
+git:
+  configuration:
+    uri: ssh://git@github.com/warroyo/platform-automation-config
+  user: 
+    email: warroyo7199008@gmail.com
+    username: warroyo
+  private_key: ((github_rsa.private_key))
+
+credhub:
+  server: https://ci.warroyo.com:8844
+  ca_cert: ((credhub_ca_cert.certificate))
+  client: ((credhub_client.username))
+  secret: ((credhub_client.password))
+  interpolate_folders: "dev/vars"

@@ -1,0 +1,128 @@
+
+
+resource_types:
+- name: terraform
+  type: docker-image
+  source:
+    repository: ljfranklin/terraform-resource
+
+- name: pivnet
+  type: docker-image
+  source:
+    repository: pivotalcf/pivnet-resource
+    tag: latest-final
+
+
+resources:
+
+- name: product
+  type: pivnet
+  source:
+    api_token: ((pivnet.token))
+    product_slug: ((product.product_slug))
+    product_version: ((product.product_version))
+    sort_by: semver
+
+- name: platform-automation-tasks
+  type: s3
+  source:
+    endpoint: ((s3.endpoint))
+    region_name: ((s3.region_name))
+    access_key_id: ((s3.access_key_id))
+    secret_access_key: ((s3.secret_access_key))
+    bucket: ((s3.buckets.platform_automation))
+    regexp: .*tasks-(.*).zip
+
+- name: platform-automation-image
+  type: s3
+  source:
+    endpoint: ((s3.endpoint))
+    region_name: ((s3.region_name))
+    access_key_id: ((s3.access_key_id))
+    secret_access_key: ((s3.secret_access_key))
+    bucket: ((s3.buckets.platform_automation))
+    regexp: .*image-(.*).tgz
+
+- name: configuration
+  type: git
+  source:
+    private_key: ((git.private_key))
+    uri: ((git.configuration.uri))
+    branch: master
+
+- name: terraform
+  type: terraform
+  source:
+    storage:
+      bucket: ((s3.buckets.pave))
+      bucket_path: ((foundation))/
+      access_key_id: ((s3.access_key_id))
+      secret_access_key: ((s3.secret_access_key))
+    env:
+      AWS_ACCESS_KEY_ID: ((aws.access_key_id))
+      AWS_SECRET_ACCESS_KEY: ((aws.secret_access_key))
+
+# reusable stuff
+credhub-interpolate: &credhub-interpolate
+  image: platform-automation-image
+  file: platform-automation-tasks/tasks/credhub-interpolate.yml
+  input_mapping:
+    files: configuration
+  params:
+    CREDHUB_SERVER: ((credhub.server))
+    CREDHUB_CA_CERT: ((credhub.ca_cert))
+    CREDHUB_CLIENT: ((credhub.client))
+    CREDHUB_SECRET: ((credhub.secret))
+    PREFIX: /concourse/((foundation))
+    INTERPOLATION_PATH: ((credhub.interpolate_folders))
+
+jobs:
+
+- name: terraform-pave
+  plan:
+  - aggregate:
+    - get: platform-automation-image
+      params: {unpack: true}
+    - get: platform-automation-tasks
+      params: {unpack: true}
+    - get: product
+      params:
+        globs:
+        - "((product.product_globs))"
+        unpack: true
+    - get: configuration
+  - task: credhub-interpolate
+    <<: *credhub-interpolate
+  - put: terraform
+    params:
+      env_name: ((foundation))
+      terraform_source: product/pivotal-cf-terraforming*/terraforming-pas
+      var_files: 
+        - interpolated-files/((foundation))/vars/terraform.yml
+      vars:
+        ops_manager_vm: false
+
+- name: terraform-destroy
+  plan:
+  - aggregate:
+    - get: platform-automation-image
+      params: {unpack: true}
+    - get: platform-automation-tasks
+      params: {unpack: true}
+    - get: product
+      params:
+        globs:
+        - "((product.product_globs))"
+        unpack: true
+    - get: configuration
+  - task: credhub-interpolate
+    <<: *credhub-interpolate
+  - put: terraform
+    params:
+      action: destroy
+      env_name: ((foundation))
+      terraform_source: product/pivotal-cf-terraforming*/terraforming-pas
+      var_files: 
+        - interpolated-files/((foundation))/vars/terraform.yml
+    get_params:
+      action: destroy
