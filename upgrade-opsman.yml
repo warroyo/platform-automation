@@ -1,10 +1,11 @@
 ---
 
 # Jobs:
-# 1. create-opsman-and-configure-auth
-# 2. configure-director
-# 3. apply-director-changes
-# 4. export-installation
+# 1. export-installation-before
+# 2. upgrade-opsman
+# 3. configure-director
+# 4. apply-changes
+# 5. export-installation-before
 
 resource_types:
 - name: pivnet
@@ -34,7 +35,17 @@ resources:
     bucket: ((s3.buckets.platform_automation))
     regexp: .*image-(.*).tgz
 
-- name: installation
+- name: installation-before
+  type: s3
+  source:
+    endpoint: ((s3.endpoint))
+    region_name: ((s3.region_name))
+    access_key_id: ((s3.access_key_id))
+    secret_access_key: ((s3.secret_access_key))
+    bucket: ((s3.buckets.foundation))
+    regexp: installation-before-(.*).zip
+
+- name: installation-after
   type: s3
   source:
     endpoint: ((s3.endpoint))
@@ -58,6 +69,7 @@ resources:
     private_key: ((git.private_key))
     uri: ((git.configuration.uri))
     branch: master
+    username: ((git.user.username))
 
 # reusable stuff
 credhub-interpolate: &credhub-interpolate
@@ -74,8 +86,8 @@ credhub-interpolate: &credhub-interpolate
     INTERPOLATION_PATH: ((credhub.interpolate_folders))
 
 jobs:
-# 1. create-opsman-and-configure-auth
-- name: create-opsman-and-configure-auth
+# 1. export-installation-before
+- name: export-installation-before
   serial: true
   plan:
   - aggregate:
@@ -84,57 +96,75 @@ jobs:
       trigger: true
     - get: platform-automation-tasks
       params: {unpack: true}
+    - get: configuration
+  - task: credhub-interpolate
+    <<: *credhub-interpolate
+  - task: export-installation
+    image: platform-automation-image
+    file: platform-automation-tasks/tasks/export-installation.yml
+    input_mapping:
+      env: interpolated-files
+    params:
+      ENV_FILE: ((foundation))/vars/env/env.yml
+      INSTALLATION_FILE: installation-before-((product.product_slug))-((product.product_version)).zip
+  - put: installation-before
+    params:
+      file: installation/installation-before-((product.product_slug))-((product.product_version)).zip
+
+# 2. upgrade-opsman
+- name: upgrade-opsman
+  serial: true
+  plan:
+  - aggregate:
+    - get: platform-automation-image
+      params: {unpack: true}
+      passed: [export-installation-before]
+    - get: platform-automation-tasks
+      params: {unpack: true}
     - get: product
       params:
         globs:
         - "((product.product_globs))"
+    - get: installation-before
     - get: configuration
   - task: credhub-interpolate
     <<: *credhub-interpolate
-  - task: create-vm
+  - task: upgrade-opsman
     image: platform-automation-image
-    file: platform-automation-tasks/tasks/create-vm.yml
+    file: platform-automation-tasks/tasks/upgrade-opsman.yml
     input_mapping:
       image: product
       state: configuration
       config: configuration
+      env: interpolated-files
       vars: interpolated-files
+      installation: installation-before
     params:
       OPSMAN_CONFIG_FILE: ((foundation))/products/((product.product_slug)).yml
       VARS_FILES: vars/((foundation))/vars/((product.product_slug))-vars.yml
+      ENV_FILE: ((foundation))/vars/env/env.yml
       STATE_FILE: ((foundation))/state/state.yml
+      INSTALLATION_FILE: installation-before-((product.product_slug))-((product.product_version)).zip
     on_success:
       do:
-        - task: make-commit
+        - task: make-commit-state
           image: platform-automation-image
           file: platform-automation-tasks/tasks/make-git-commit.yml
           input_mapping:
             repository: configuration
             file-source: generated-state
           output_mapping:
-            repository-commit: configuration-commit
+            repository-commit: configuration-commit-state
           params:
             FILE_SOURCE_PATH: state.yml
             FILE_DESTINATION_PATH: ((foundation))/state/state.yml
             GIT_AUTHOR_EMAIL: ((git.user.email))
             GIT_AUTHOR_NAME: ((git.user.username))
-            COMMIT_MESSAGE: "Add or update state file: state.yml"
+            COMMIT_MESSAGE: "Update state file after ((product.product_slug))-((product.product_version))"
         - put: configuration
           params:
-            repository: configuration-commit
+            repository: configuration-commit-state
             merge: true
-  - task: configure-authentication
-    image: platform-automation-image
-    file: platform-automation-tasks/tasks/configure-authentication.yml
-    attempts: 10
-    input_mapping:
-      env: interpolated-files
-      config: interpolated-files
-    params:
-      ENV_FILE: ((foundation))/vars/env/env.yml
-      AUTH_CONFIG_FILE: ((foundation))/vars/config/auth.yml
-    on_success: &make-config-commit
-      do:
         - task: staged-director-config
           image: platform-automation-image
           file: platform-automation-tasks/tasks/staged-director-config.yml
@@ -142,7 +172,7 @@ jobs:
             env: interpolated-files
           params:
             ENV_FILE: ((foundation))/vars/env/env.yml
-        - task: make-commit
+        - task: make-commit-before
           image: platform-automation-image
           file: platform-automation-tasks/tasks/make-git-commit.yml
           input_mapping:
@@ -161,53 +191,14 @@ jobs:
             repository: configuration-commit
             merge: true
 
-- name: setup-vm-extensions
-  serial: true
-  plan:
-  - aggregate:
-    - get: platform-automation-image
-      passed: [create-opsman-and-configure-auth]
-      params: {unpack: true}
-      trigger: true
-    - get: platform-automation-tasks
-      params: {unpack: true}
-    - get: configuration
-  - task: credhub-interpolate
-    <<: *credhub-interpolate
-  - task: create-extensions
-    image: platform-automation-image
-    input_mapping:
-      env: interpolated-files
-    params:
-      ENV_FILE: ((foundation))/vars/env/env.yml
-    config:
-      platform: linux
-      inputs:
-      - name: env # contains the env file with target OpsMan Information
-      run:
-        path: bash
-        args:
-        - "-c"
-        - |
-          cat /var/version && echo ""
-          set -eux
-          om --env env/"${ENV_FILE}" -k curl --path /api/v0/staged/vm_extensions/web-lb-security-groups -x PUT -d \
-          '{"name": "web-lb-security-groups", "cloud_properties": { "security_groups": ["web_lb_security_group", "vms_security_group"] }}'
-          om  --env env/"${ENV_FILE}" -k curl --path /api/v0/staged/vm_extensions/ssh-lb-security-groups -x PUT -d \
-          '{"name": "ssh-lb-security-groups", "cloud_properties": { "security_groups": ["ssh_lb_security_group", "vms_security_group"] }}'
-          om --env env/"${ENV_FILE}" -k curl --path /api/v0/staged/vm_extensions/tcp-lb-security-groups -x PUT -d \
-          '{"name": "tcp-lb-security-groups", "cloud_properties": { "security_groups": ["tcp_lb_security_group", "vms_security_group"] }}'
-        
-    
-
-# 2. configure-director
+# 3. configure-director
 - name: configure-director
   serial: true
   plan:
   - aggregate:
     - get: platform-automation-image
-      passed: [setup-vm-extensions]
       params: {unpack: true}
+      passed: [upgrade-opsman]
     - get: platform-automation-tasks
       params: {unpack: true}
     - get: configuration
@@ -225,14 +216,14 @@ jobs:
       DIRECTOR_CONFIG_FILE: ((foundation))/products/director.yml
       VARS_FILES: vars/((foundation))/vars/director-vars.yml
 
-# 3. apply-director-changes
+# 4. apply-director-changes
 - name: apply-director-changes
   serial: true
   plan:
   - aggregate:
     - get: platform-automation-image
-      passed: [configure-director]
       params: {unpack: true}
+      passed: [configure-director]
     - get: platform-automation-tasks
       params: {unpack: true}
     - get: configuration
@@ -245,17 +236,43 @@ jobs:
       env: interpolated-files
     params:
       ENV_FILE: ((foundation))/vars/env/env.yml
-    on_success: *make-config-commit
+    on_success:
+      do:
+        - task: staged-director-config
+          image: platform-automation-image
+          file: platform-automation-tasks/tasks/staged-director-config.yml
+          input_mapping:
+            env: interpolated-files
+          params:
+            ENV_FILE: ((foundation))/vars/env/env.yml
+        - task: make-commit-after
+          image: platform-automation-image
+          file: platform-automation-tasks/tasks/make-git-commit.yml
+          input_mapping:
+            repository: configuration
+            file-source: generated-config
+          output_mapping:
+            repository-commit: configuration-commit
+          params:
+            FILE_SOURCE_PATH: director.yml
+            FILE_DESTINATION_PATH: ((foundation))/generated-config/director-((product.product_version)).yml
+            GIT_AUTHOR_EMAIL: ((git.user.email))
+            GIT_AUTHOR_NAME: ((git.user.username))
+            COMMIT_MESSAGE: "Add or update product config: director-((product.product_version)).yml"
+        - put: configuration
+          params:
+            repository: configuration-commit
+            merge: true
 
-# 4 export-installation
-- name: export-installation
+# 5 export-installation-after
+- name: export-installation-after
   serial: true
   plan:
   - aggregate:
     - get: platform-automation-image
       params: {unpack: true}
-      passed: [apply-director-changes]
       trigger: true
+      passed: [apply-director-changes]
     - get: platform-automation-tasks
       params: {unpack: true}
     - get: configuration
@@ -269,6 +286,6 @@ jobs:
     params:
       ENV_FILE: ((foundation))/vars/env/env.yml
       INSTALLATION_FILE: installation-after-((product.product_slug))-((product.product_version)).zip
-  - put: installation
+  - put: installation-after
     params:
       file: installation/installation-after-((product.product_slug))-((product.product_version)).zip

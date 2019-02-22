@@ -1,0 +1,35 @@
+foundation: dev
+
+s3:
+  endpoint: s3.us-east-1.amazonaws.com
+  access_key_id: ((s3_access_key_id))
+  secret_access_key: ((s3_secret_access_key_id))
+  region_name: "us-east-1"
+  buckets:
+    platform_automation: pcf-automation-blobs
+    foundation: dev-pas-bucket
+    products: pivnet-products
+
+product:
+  # Pivnet-based
+  product_slug: ops-manager
+  product_name: ""
+  product_version: 2.4.4
+  product_globs: "*AWS.yml"
+  # S3-based, enable and set below variables if using S3
+  #regexp: 
+
+credhub:
+  server: https://ci.warroyo.com:8844
+  ca_cert: ((credhub_ca_cert.certificate))
+  client: ((credhub_client.username))
+  secret: ((credhub_client.password))
+  interpolate_folders: "dev/vars"
+
+git:
+  configuration:
+    uri: ssh://git@github.com/warroyo/platform-automation-config
+  user: 
+    email: warroyo7199008@gmail.com
+    username: warroyo
+  private_key: ((github_rsa.private_key))
