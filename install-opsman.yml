@@ -160,44 +160,6 @@ jobs:
           params:
             repository: configuration-commit
             merge: true
-
-- name: setup-vm-extensions
-  serial: true
-  plan:
-  - aggregate:
-    - get: platform-automation-image
-      passed: [create-opsman-and-configure-auth]
-      params: {unpack: true}
-      trigger: true
-    - get: platform-automation-tasks
-      params: {unpack: true}
-    - get: configuration
-  - task: credhub-interpolate
-    <<: *credhub-interpolate
-  - task: create-extensions
-    image: platform-automation-image
-    input_mapping:
-      env: interpolated-files
-    params:
-      ENV_FILE: ((foundation))/vars/env/env.yml
-    config:
-      platform: linux
-      inputs:
-      - name: env # contains the env file with target OpsMan Information
-      run:
-        path: bash
-        args:
-        - "-c"
-        - |
-          cat /var/version && echo ""
-          set -eux
-          om --env env/"${ENV_FILE}" -k curl --path /api/v0/staged/vm_extensions/web-lb-security-groups -x PUT -d \
-          '{"name": "web-lb-security-groups", "cloud_properties": { "security_groups": ["web_lb_security_group", "vms_security_group"] }}'
-          om  --env env/"${ENV_FILE}" -k curl --path /api/v0/staged/vm_extensions/ssh-lb-security-groups -x PUT -d \
-          '{"name": "ssh-lb-security-groups", "cloud_properties": { "security_groups": ["ssh_lb_security_group", "vms_security_group"] }}'
-          om --env env/"${ENV_FILE}" -k curl --path /api/v0/staged/vm_extensions/tcp-lb-security-groups -x PUT -d \
-          '{"name": "tcp-lb-security-groups", "cloud_properties": { "security_groups": ["tcp_lb_security_group", "vms_security_group"] }}'
-        
     
 
 # 2. configure-director

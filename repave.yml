@@ -1,0 +1,123 @@
+---
+
+# Jobs:
+# 1. configure-director
+# 2. apply-director-changes
+
+resource_types:
+
+- name: pivnet
+  type: docker-image
+  source:
+    repository: pivotalcf/pivnet-resource
+    tag: latest-final
+
+resources:
+- name: platform-automation-tasks
+  type: s3
+  source:
+    endpoint: ((s3.endpoint))
+    region_name: ((s3.region_name))
+    access_key_id: ((s3.access_key_id))
+    secret_access_key: ((s3.secret_access_key))
+    bucket: ((s3.buckets.platform_automation))
+    regexp: .*tasks-(.*).zip
+
+- name: platform-automation-image
+  type: s3
+  source:
+    endpoint: ((s3.endpoint))
+    region_name: ((s3.region_name))
+    access_key_id: ((s3.access_key_id))
+    secret_access_key: ((s3.secret_access_key))
+    bucket: ((s3.buckets.platform_automation))
+    regexp: .*image-(.*).tgz
+
+
+- name: configuration
+  type: git
+  source:
+    private_key: ((git.private_key))
+    uri: ((git.configuration.uri))
+    branch: master
+
+# reusable stuff
+credhub-interpolate: &credhub-interpolate
+  image: platform-automation-image
+  file: platform-automation-tasks/tasks/credhub-interpolate.yml
+  input_mapping:
+    files: configuration
+  params:
+    CREDHUB_SERVER: ((credhub.server))
+    CREDHUB_CA_CERT: ((credhub.ca_cert))
+    CREDHUB_CLIENT: ((credhub.client))
+    CREDHUB_SECRET: ((credhub.secret))
+    PREFIX: /concourse/((foundation))
+    INTERPOLATION_PATH: ((credhub.interpolate_folders))
+
+jobs:
+- name: configure-director
+  serial: true
+  plan:
+  - aggregate:
+    - get: platform-automation-image
+      params: {unpack: true}
+    - get: platform-automation-tasks
+      params: {unpack: true}
+    - get: configuration
+  - task: set-repave
+    input_mapping:
+      configs: configuration
+    params:
+      ENV_FILE: ((foundation))/vars/env/env.yml
+    config:
+      platform: linux
+      image_resource:
+        type: docker-image
+        source:
+          repository: mikefarah/yq
+      inputs:
+      - name: configs
+      outputs:
+      - name: configuration
+      run:
+        path: /bin/sh
+        args:
+        - "-c"
+        - |
+          yq w -i configs/((foundation))/vars/director-vars.yml director.director_configuration.bosh_recreate_on_next_deploy true
+          cp -r configs/* configuration/
+  - task: credhub-interpolate
+    <<: *credhub-interpolate
+  - task: configure-director
+    image: platform-automation-image
+    file: platform-automation-tasks/tasks/configure-director.yml
+    input_mapping:
+      config: configuration
+      env: interpolated-files
+      vars: interpolated-files
+    params:
+      ENV_FILE: ((foundation))/vars/env/env.yml
+      DIRECTOR_CONFIG_FILE: ((foundation))/products/director.yml
+      VARS_FILES: vars/((foundation))/vars/director-vars.yml
+
+- name: repave
+  serial: true
+  plan:
+  - aggregate:
+    - get: platform-automation-image
+      passed: [configure-director]
+      trigger: true
+      params: {unpack: true}
+    - get: platform-automation-tasks
+      params: {unpack: true}
+    - get: configuration
+  - task: credhub-interpolate
+    <<: *credhub-interpolate
+  - task: repave
+    image: platform-automation-image
+    file: platform-automation-tasks/tasks/apply-changes.yml
+    input_mapping:
+      env: interpolated-files
+    params:
+      ENV_FILE: ((foundation))/vars/env/env.yml
