@@ -96,7 +96,7 @@ jobs:
   - put: terraform
     params:
       env_name: ((foundation))
-      terraform_source: product/pivotal-cf-terraforming*/terraforming-pas
+      terraform_source: product/pivotal-cf-terraforming*/terraforming-((platform))
       var_files: 
         - interpolated-files/((foundation))/vars/terraform.yml
       vars:
@@ -121,7 +121,7 @@ jobs:
     params:
       action: destroy
       env_name: ((foundation))
-      terraform_source: product/pivotal-cf-terraforming*/terraforming-pas
+      terraform_source: product/pivotal-cf-terraforming*/terraforming-((platform))
       var_files: 
         - interpolated-files/((foundation))/vars/terraform.yml
     get_params:

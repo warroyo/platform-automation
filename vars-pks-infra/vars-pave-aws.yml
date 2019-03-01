@@ -1,5 +1,5 @@
-foundation: dev
-platform: pas
+foundation: infra
+platform: pks
 
 aws:
   access_key_id: ((dev_access_key_id))
@@ -18,7 +18,7 @@ product:
   # Pivnet-based
   product_slug: elastic-runtime
   product_name: ""
-  product_version: 2.4.3-build.18
+  product_version: 2.4.3
   product_globs: "terraforming-aws-*.zip"
   # S3-based, enable and set below variables if using S3
   #regexp: 
@@ -39,4 +39,4 @@ credhub:
   ca_cert: ((credhub_ca_cert.certificate))
   client: ((credhub_client.username))
   secret: ((credhub_client.password))
-  interpolate_folders: "dev/vars"
+  interpolate_folders: "infra/vars"
