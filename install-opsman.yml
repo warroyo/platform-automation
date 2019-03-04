@@ -168,7 +168,7 @@ jobs:
   plan:
   - aggregate:
     - get: platform-automation-image
-      passed: [setup-vm-extensions]
+      passed: [create-opsman-and-configure-auth]
       params: {unpack: true}
     - get: platform-automation-tasks
       params: {unpack: true}
