@@ -1,0 +1,28 @@
+foundation: dev
+
+s3:
+  endpoint: s3.us-east-1.amazonaws.com
+  access_key_id: ((s3_access_key_id))
+  secret_access_key: ((s3_secret_access_key_id))
+  region_name: "us-east-1"
+  buckets:
+    platform_automation: pcf-automation-blobs
+    products: pivnet-products
+
+pivnet: 
+  token: ((pivnet_token))
+
+credhub:
+  server: https://ci.warroyo.com:8844
+  ca_cert: ((credhub_ca_cert.certificate))
+  client: ((credhub_client.username))
+  secret: ((credhub_client.password))
+  interpolate_folders: "dev/product-downloads"
+
+git:
+  configuration:
+    uri: ssh://git@github.com/warroyo/platform-automation-config
+  user: 
+    email: warroyo7199008@gmail.com
+    username: warroyo
+  private_key: ((github_rsa.private_key))

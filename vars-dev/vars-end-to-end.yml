@@ -1,0 +1,104 @@
+foundation: dev
+platform: pas
+
+aws:
+  access_key_id: ((dev_access_key_id))
+  secret_access_key: ((dev_secret_access_key_id))
+
+s3:
+  endpoint: s3.us-east-1.amazonaws.com
+  access_key_id: ((s3_access_key_id))
+  secret_access_key: ((s3_secret_access_key_id))
+  region_name: "us-east-1"
+  buckets:
+    platform_automation: pcf-automation-blobs
+    pave: pcf-pave-bucket
+    foundation: dev-pas-bucket
+    products: pivnet-products
+    
+products:
+  tf:
+    product_slug: elastic-runtime
+    product_name: ""
+    product_version: 2.4.4
+    product_globs: "terraforming-aws-*.zip"
+  opsman:
+    product_slug: ops-manager
+    product_name: ""
+    product_version: 2.4.4
+    product_globs: "*AWS.yml"
+  pas:
+    product_slug: elastic-runtime
+    product_name: cf
+    product_version: 2.4.4
+    product_globs: srt-*.pivotal
+    stemcell:
+      product_slug: stemcells-ubuntu-xenial
+      product_version: "170.30"
+      product_globs: light-bosh-stemcell-*-aws-*.tgz
+  metrics:
+    product_slug: apm
+    product_name: "apmPostgres"
+    product_version: 1.6.0
+    product_globs: "apm-*.pivotal"
+  healthwatch:
+    product_slug: p-healthwatch
+    product_name: "p-healthwatch"
+    product_version: 1.4.5
+    product_globs: "p-healthwatch*.pivotal"
+    stemcell:
+      product_slug: stemcells-ubuntu-xenial
+      product_version: "97.65"
+      product_globs: light-bosh-stemcell-*-aws-*.tgz
+  scs:
+    product_slug: p-spring-cloud-services
+    product_name: "p-spring-cloud-services"
+    product_version: 2.0.7
+    product_globs: "p-spring-cloud-services*.pivotal"
+  rabbit:
+    product_slug: p-rabbitmq
+    product_name: "p-rabbitmq"
+    product_version: 1.15.5
+    product_globs: "p-rabbitmq*.pivotal"
+  mysql:
+    product_slug: pivotal-mysql
+    product_name: "pivotal-mysql"
+    product_version: 2.5.3
+    product_globs: "pivotal-mysql-*.pivotal"
+  credhub:
+    product_slug: credhub-service-broker
+    product_name: "credhub-service-broker"
+    product_version: 1.2.0
+    product_globs: "credhub-service-broker-*.pivotal"
+    stemcell:
+      product_slug: stemcells
+      product_version: "3586.86"
+      product_globs: light-bosh-stemcell-*-aws-*.tgz
+  pasw:
+    product_slug: pas-windows
+    product_name: "pas-windows"
+    product_version: 2.4.4
+    product_globs: pas-windows-(.*).pivotal
+    stemcell:
+      product_slug: stemcells-windows-server
+      product_version: "1803.7"
+      product_globs: light-bosh-stemcell-*-aws-*.tgz
+
+
+pivnet: 
+  token: ((pivnet_token))
+
+git:
+  configuration:
+    uri: ssh://git@github.com/warroyo/platform-automation-config
+  user: 
+    email: warroyo7199008@gmail.com
+    username: warroyo
+  private_key: ((github_rsa.private_key))
+
+credhub:
+  server: https://ci.warroyo.com:8844
+  ca_cert: ((credhub_ca_cert.certificate))
+  client: ((credhub_client.username))
+  secret: ((credhub_client.password))
+  interpolate_folders: "dev/vars"
