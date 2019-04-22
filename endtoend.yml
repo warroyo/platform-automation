@@ -42,6 +42,7 @@ resource_types:
   type: docker-image
   source:
     repository: ljfranklin/terraform-resource
+    tag: latest
 
 - name: pivnet
   type: docker-image
@@ -83,6 +84,23 @@ resources:
     product_slug: ((products.pas.stemcell.product_slug))
     product_version: ((products.pas.stemcell.product_version))
     sort_by: semver
+
+- name: redis
+  type: pivnet
+  source:
+    api_token: ((pivnet.token))
+    product_slug: ((products.redis.product_slug))
+    product_version: ((products.redis.product_version))
+    sort_by: semver
+
+- name: redis-stemcell
+  type: pivnet
+  source:
+    api_token: ((pivnet_token))
+    product_slug: ((products.redis.stemcell.product_slug))
+    product_version: ((products.redis.stemcell.product_version))
+    sort_by: semver
+
 
 - name: mysql
   type: pivnet
@@ -206,11 +224,14 @@ resources:
 - name: terraform
   type: terraform
   source:
-    storage:
+    backend_type: s3
+    backend_config:
       bucket: ((s3.buckets.pave))
-      bucket_path: ((foundation))/
-      access_key_id: ((s3.access_key_id))
-      secret_access_key: ((s3.secret_access_key))
+      workspace_key_prefix: ((foundation))
+      key: terraform.tfstate
+      region: us-east-1
+      access_key: ((s3.access_key_id))
+      secret_key: ((s3.secret_access_key))
     env:
       AWS_ACCESS_KEY_ID: ((aws.access_key_id))
       AWS_SECRET_ACCESS_KEY: ((aws.secret_access_key))
@@ -229,9 +250,26 @@ credhub-interpolate: &credhub-interpolate
     PREFIX: /concourse/((foundation))
     INTERPOLATION_PATH: ((credhub.interpolate_folders))
 
+
+rename-tf-source: &rename-tf-source
+  config:
+    platform: linux
+    image_resource:
+      type: docker-image
+      source:
+        repository: bash
+    inputs:
+      - name: tf
+    outputs:
+      - name: tf-source
+    run:
+      path: bash
+      args:
+      - "-c"
+      - |
+        mv tf/pivotal-cf-terraforming*/* tf-source
+
 jobs:
-
-
 
 - name: terraform-pave
   plan:
@@ -248,10 +286,12 @@ jobs:
     - get: configuration
   - task: credhub-interpolate
     <<: *credhub-interpolate
+  - task: rename-folder
+    <<: *rename-tf-source
   - put: terraform
     params:
       env_name: ((foundation))
-      terraform_source: tf/pivotal-cf-terraforming*/terraforming-((platform))
+      terraform_source: tf-source/terraforming-((platform))
       var_files: 
         - interpolated-files/((foundation))/vars/terraform.yml
       vars:
@@ -272,11 +312,13 @@ jobs:
     - get: configuration
   - task: credhub-interpolate
     <<: *credhub-interpolate
+  - task: rename-folder
+    <<: *rename-tf-source
   - put: terraform
     params:
       action: destroy
       env_name: ((foundation))
-      terraform_source: tf/pivotal-cf-terraforming*/terraforming-((platform))
+      terraform_source: tf-source/terraforming-((platform))
       var_files: 
         - interpolated-files/((foundation))/vars/terraform.yml
     get_params:
@@ -446,7 +488,7 @@ jobs:
   - aggregate:
     - get: platform-automation-image
       params: {unpack: true}
-      trigger: true
+      # trigger: true
       passed: [export-installation]
     - get: platform-automation-tasks
       params: {unpack: true}
@@ -527,14 +569,100 @@ jobs:
       stemcell: pas-stemcell
     params:
       ENV_FILE: ((foundation))/vars/env/env.yml
-  
+
+- name: upload-and-stage-redis
+  plan:
+  - aggregate:
+    - get: platform-automation-image
+      params: {unpack: true}
+      # trigger: true
+      passed: [export-installation]
+    - get: platform-automation-tasks
+      params: {unpack: true}
+    - get: redis
+      params:
+        globs:
+        - "((products.redis.product_globs))"
+    - get: configuration
+  - task: credhub-interpolate
+    <<: *credhub-interpolate
+  - task: upload-product
+    image: platform-automation-image
+    file: platform-automation-tasks/tasks/upload-product.yml
+    input_mapping:
+      product: redis
+      env: interpolated-files
+    params:
+      ENV_FILE: ((foundation))/vars/env/env.yml
+  - task: stage-product
+    image: platform-automation-image
+    file: platform-automation-tasks/tasks/stage-product.yml
+    input_mapping:
+      product: redis
+      env: interpolated-files
+    params:
+      ENV_FILE: ((foundation))/vars/env/env.yml
+  - task: staged-config
+    image: platform-automation-image
+    file: platform-automation-tasks/tasks/staged-config.yml
+    input_mapping:
+      env: interpolated-files
+    params:
+      PRODUCT_NAME: ((products.redis.product_name))
+      ENV_FILE: ((foundation))/vars/env/env.yml
+      SUBSTITUTE_CREDENTIALS_WITH_PLACEHOLDERS: true
+    on_success: 
+      do:
+        - task: make-commit
+          image: platform-automation-image
+          file: platform-automation-tasks/tasks/make-git-commit.yml
+          input_mapping:
+            repository: configuration
+            file-source: generated-config
+          output_mapping:
+            repository-commit: configuration-commit
+          params:
+            FILE_SOURCE_PATH: ((products.redis.product_name)).yml
+            FILE_DESTINATION_PATH: ((foundation))/generated-config/((products.redis.product_name))-((products.redis.product_version)).yml
+            GIT_AUTHOR_EMAIL: ((git.user.email))
+            GIT_AUTHOR_NAME: ((git.user.username))
+            COMMIT_MESSAGE: "Add product config: ((products.redis.product_name))-((products.redis.product_version)).yml"
+        - put: configuration
+          params:
+            repository: configuration-commit
+            merge: true
+
+- name: upload-redis-stemcell
+  plan:
+  - aggregate:
+    - get: platform-automation-image
+      params: {unpack: true}
+      passed: [export-installation]
+      trigger: true
+    - get: platform-automation-tasks
+      params: {unpack: true}
+    - get: configuration
+    - get: redis-stemcell
+      params:
+        globs:
+        - "((products.redis.stemcell.product_globs))"
+  - task: credhub-interpolate
+    <<: *credhub-interpolate
+  - task: upload-stemcell
+    image: platform-automation-image
+    file: platform-automation-tasks/tasks/upload-stemcell.yml
+    input_mapping:
+      env: interpolated-files
+      stemcell: redis-stemcell
+    params:
+      ENV_FILE: ((foundation))/vars/env/env.yml
 
 - name: upload-and-stage-pasw
   plan:
   - aggregate:
     - get: platform-automation-image
       params: {unpack: true}
-      trigger: true
+      # trigger: true
       passed: [export-installation]
     - get: platform-automation-tasks
       params: {unpack: true}
@@ -618,7 +746,7 @@ jobs:
   - aggregate:
     - get: platform-automation-image
       params: {unpack: true}
-      trigger: true
+      # trigger: true
       passed: [export-installation]
     - get: platform-automation-tasks
       params: {unpack: true}
@@ -680,7 +808,7 @@ jobs:
   - aggregate:
     - get: platform-automation-image
       params: {unpack: true}
-      trigger: true
+      # trigger: true
       passed: [export-installation]
     - get: platform-automation-tasks
       params: {unpack: true}
@@ -742,7 +870,7 @@ jobs:
   - aggregate:
     - get: platform-automation-image
       params: {unpack: true}
-      trigger: true
+      # trigger: true
       passed: [export-installation]
     - get: platform-automation-tasks
       params: {unpack: true}
@@ -804,7 +932,7 @@ jobs:
   - aggregate:
     - get: platform-automation-image
       params: {unpack: true}
-      trigger: true
+      # trigger: true
       passed: [export-installation]
     - get: platform-automation-tasks
       params: {unpack: true}
@@ -866,7 +994,7 @@ jobs:
   - aggregate:
     - get: platform-automation-image
       params: {unpack: true}
-      trigger: true
+      # trigger: true
       passed: [export-installation]
     - get: platform-automation-tasks
       params: {unpack: true}
@@ -928,7 +1056,7 @@ jobs:
   - aggregate:
     - get: platform-automation-image
       params: {unpack: true}
-      trigger: true
+      # trigger: true
       passed: [export-installation]
     - get: platform-automation-tasks
       params: {unpack: true}
@@ -1072,6 +1200,48 @@ jobs:
             GIT_AUTHOR_EMAIL: ((git.user.email))
             GIT_AUTHOR_NAME: ((git.user.username))
             COMMIT_MESSAGE: "Add or update product config: ((products.pas.product_name))-((products.pas.product_version)).yml"
+        - put: configuration
+          params:
+            repository: configuration-commit
+            merge: true
+
+- name: generate-redis-configs
+  plan:
+  - aggregate:
+    - get: platform-automation-image
+      params: {unpack: true}
+      passed: [upload-and-stage-redis]
+      trigger: true
+    - get: platform-automation-tasks
+      params: {unpack: true}
+    - get: configuration
+  - task: credhub-interpolate
+    <<: *credhub-interpolate
+  - task: redis-staged-config
+    image: platform-automation-image
+    file: platform-automation-tasks/tasks/staged-config.yml
+    input_mapping:
+      env: interpolated-files
+    params:
+      PRODUCT_NAME: ((products.redis.product_name))
+      ENV_FILE: ((foundation))/vars/env/env.yml
+      SUBSTITUTE_CREDENTIALS_WITH_PLACEHOLDERS: true
+    on_success:
+      do:
+        - task: make-commit
+          image: platform-automation-image
+          file: platform-automation-tasks/tasks/make-git-commit.yml
+          input_mapping:
+            repository: configuration
+            file-source: generated-config
+          output_mapping:
+            repository-commit: configuration-commit
+          params:
+            FILE_SOURCE_PATH: ((products.redis.product_name)).yml
+            FILE_DESTINATION_PATH: ((foundation))/generated-config/((products.redis.product_name))-((products.redis.product_version)).yml
+            GIT_AUTHOR_EMAIL: ((git.user.email))
+            GIT_AUTHOR_NAME: ((git.user.username))
+            COMMIT_MESSAGE: "Add or update product config: ((products.redis.product_name))-((products.redis.product_version)).yml"
         - put: configuration
           params:
             repository: configuration-commit
@@ -1392,6 +1562,29 @@ jobs:
     params:
       CONFIG_FILE: ((foundation))/products/((products.pas.product_name)).yml
       VARS_FILES: vars/((foundation))/vars/((products.pas.product_name))-vars.yml
+      ENV_FILE: ((foundation))/vars/env/env.yml
+
+- name: configure-redis
+  plan:
+  - aggregate:
+    - get: platform-automation-image
+      params: {unpack: true}
+      passed: [generate-redis-configs]
+    - get: platform-automation-tasks
+      params: {unpack: true}
+    - get: configuration
+  - task: credhub-interpolate
+    <<: *credhub-interpolate
+  - task: configure-product
+    image: platform-automation-image
+    file: platform-automation-tasks/tasks/configure-product.yml
+    input_mapping:
+      config: configuration
+      env: interpolated-files
+      vars: interpolated-files
+    params:
+      CONFIG_FILE: ((foundation))/products/((products.redis.product_name)).yml
+      VARS_FILES: vars/((foundation))/vars/((products.redis.product_name))-vars.yml
       ENV_FILE: ((foundation))/vars/env/env.yml
 
 - name: configure-pasw

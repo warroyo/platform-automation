@@ -20,21 +20,30 @@ products:
   tf:
     product_slug: elastic-runtime
     product_name: ""
-    product_version: 2.4.4
+    product_version: 2.5.2
     product_globs: "terraforming-aws-*.zip"
   opsman:
     product_slug: ops-manager
     product_name: ""
-    product_version: 2.4.4
-    product_globs: "*AWS.yml"
+    product_version: 2.5.2
+    product_globs: "*aws*.yml"
   pas:
     product_slug: elastic-runtime
     product_name: cf
-    product_version: 2.4.4
+    product_version: 2.5.2ß
     product_globs: srt-*.pivotal
     stemcell:
       product_slug: stemcells-ubuntu-xenial
-      product_version: "170.30"
+      product_version: "250.25"
+      product_globs: light-bosh-stemcell-*-aws-*.tgz
+  redis:
+    product_slug: p-redis
+    product_name: p-redis
+    product_version: 2.0.1
+    product_globs: p-redis-*.pivotal
+    stemcell:
+      product_slug: stemcells-ubuntu-xenial
+      product_version: "170.45"
       product_globs: light-bosh-stemcell-*-aws-*.tgz
   metrics:
     product_slug: apm
